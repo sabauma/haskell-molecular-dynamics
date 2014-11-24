@@ -5,6 +5,7 @@
 module MolecularDynamics.Vec3
     ( Vec3 (..)
     , module Data.AdditiveGroup
+    , module Data.AffineSpace
     , module Data.VectorSpace
     , oneV
     , vec3
@@ -14,12 +15,12 @@ module MolecularDynamics.Vec3
     , getZ
     ) where
 
-import           Data.Array.Repa.Eval
 import qualified Data.Vector.Generic
 import qualified Data.Vector.Generic.Mutable
 import           Data.Vector.Unboxed.Deriving
 
 import           Data.AdditiveGroup
+import           Data.AffineSpace
 import           Data.VectorSpace
 
 data Vec3 = Vec3 {-# UNPACK #-} !Double
@@ -31,14 +32,6 @@ derivingUnbox "Vec3"
   [t| Vec3 -> (Double, Double, Double) |]
   [| \(Vec3 x y z) -> (x, y, z) |]
   [| \(x, y, z) -> Vec3 x y z |]
-
-instance Elt Vec3 where
-  touch Vec3{}  = return ()
-  {-# INLINE touch #-}
-  zero = Vec3 0 0 0
-  {-# INLINE zero #-}
-  one = Vec3 1 1 1
-  {-# INLINE one #-}
 
 vec3 :: Double -> Double -> Double -> Vec3
 vec3 = Vec3
