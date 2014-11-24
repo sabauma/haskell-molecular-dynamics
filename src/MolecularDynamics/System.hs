@@ -45,8 +45,8 @@ data System = System
   , particleSize :: Particle -> Double
   }
 
-instance Show System where
-  show = show . particles
+--instance Show System where
+--  show = show . particles
 
 -- data System = System
 --   { positions     :: !(Array U DIM1 Vec3)

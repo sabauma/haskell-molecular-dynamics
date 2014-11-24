@@ -1,4 +1,6 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ViewPatterns #-}
+module Main where
 
 import           Data.Vector.Unboxed      (Vector)
 import qualified Data.Vector.Unboxed      as V
@@ -32,7 +34,7 @@ leaves (subtrees -> s)
   | otherwise = sum $ map leaves s
 
 boxCenter, boxSpan :: BoundingBox -> Vec3
-boxCenter (BoundingBox min max) = (max ^+^ min) ^/ 2
+boxCenter (BoundingBox min max) = (max ^+^ min) ^* 0.5
 boxSpan (BoundingBox min max)   = max ^-^ min
 {-# INLINE boxCenter #-}
 {-# INLINE boxSpan   #-}
@@ -45,17 +47,20 @@ vectorMin :: Vec3 -> Vec3 -> Vec3
 vectorMin (Vec3 a b c) (Vec3 x y z) = Vec3 (min a x) (min b y) (min c z)
 {-# INLINE vectorMin #-}
 
+dup :: a -> (a, a)
+dup x = (x, x)
+{-# INLINE dup #-}
+
 -- God willing, all these operations will fuse
 computeBounds :: Vector Vec3 -> BoundingBox
-computeBounds particles = uncurry BoundingBox $ V.foldl' f (init, init) particles
-  where f (a, b) v = (vectorMin a v, vectorMax b v)
-        init       = particles V.! 0
+computeBounds = uncurry BoundingBox . V.foldl1' f . V.map dup
+  where f (!a, !b) (!l, !r) = (vectorMin a l, vectorMax b r)
 {-# INLINE computeBounds #-}
 
 computeCenter :: Vector PositionAndMass -> Centroid
 computeCenter particles = Centroid (mid ^/ mass) mass
   where (mid, mass)     = V.foldl' f (zeroV, 0) particles
-        f (l, r) (p, m) = (l ^+^ m *^ p, r + m)
+        f (!l, !r) (!p, !m) = (l ^+^ m *^ p, r + m)
 {-# INLINE computeCenter #-}
 
 -- A function taking a bounding box and a position vector and producing an index
@@ -78,7 +83,7 @@ subBoxes (BoundingBox (Vec3 minx miny minz) (Vec3 maxx maxy maxz)) (Vec3 cx cy c
 
 -- It would be nice if this could be done in a single pass, but this is simple.
 partitionParticles :: Vector PositionAndMass -> Vector Int -> [Vector PositionAndMass]
-partitionParticles ps idx = map f [0 .. 7]
+partitionParticles ps idx = [f 0, f 1, f 2, f 3, f 4, f 5, f 6, f 7]
   where
     ps' = V.zip ps idx
     f i = V.map fst $ V.filter ((== i) . snd) ps'
@@ -103,13 +108,22 @@ createBHTree box ps
   where
     Centroid com mass = computeCenter ps
     subspaces         = splitPoints box ps
-    (Vec3 dx dy dz)   = boxSpan box
+    Vec3 dx dy dz     = boxSpan box
     extent            = dx `min` dy `min` dz
     subtrees          = map (uncurry createBHTree) subspaces
-{-# INLINE createBHTree #-}
-
-testBox = BoundingBox (Vec3 0 0 0) (Vec3 1 1 1)
 
 test :: Vector (Vec3, Double)
-test = V.fromList [(Vec3 1 1 1, 1), (Vec3 0 0 1, 2), (Vec3 0 0 0, 3), (Vec3 0.5 0.5 0.5, 4)]
+test = V.fromList $ do
+  x <- [1 .. 100]
+  y <- [1 .. 100]
+  z <- [1 .. 100]
+  return (Vec3 x y z, x + y + z)
+
+testTree = createBHTree (computeBounds $ V.map fst test) test
+
+main :: IO ()
+main = print $ leaves testTree
+
+--test :: Vector (Vec3, Double)
+--test = V.fromList [(Vec3 1 1 1, 1), (Vec3 0 0 1, 2), (Vec3 0 0 0, 3), (Vec3 0.5 0.5 0.5, 4)]
 

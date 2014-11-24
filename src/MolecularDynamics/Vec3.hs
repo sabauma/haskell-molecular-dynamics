@@ -64,6 +64,7 @@ getZ (Vec3 _ _ z) = z
 
 oneV :: Vec3
 oneV = vec3 1 1 1
+{-# INLINE oneV #-}
 
 vecMap :: (Double -> Double) -> Vec3 -> Vec3
 vecMap f (Vec3 x y z) = vec3 (f x) (f y) (f z)
