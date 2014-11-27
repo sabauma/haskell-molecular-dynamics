@@ -1,111 +1,74 @@
-{-# LANGUAGE BangPatterns               #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE RecordWildCards            #-}
-module MolecularDynamics.System where
+{-# LANGUAGE BangPatterns        #-}
+{-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+module MolecularDynamics.System
+  ( System (..)
+  , integrateSystem
+  , serializeSystem
+  ) where
 
-import           Control.Applicative
-{-import           Data.Array.Repa        as R hiding ((*^), (++))-}
+import qualified Data.ByteString.Lazy     as B
+import           Data.Csv
+import           Data.Vector.Unboxed      (Vector)
+import qualified Data.Vector.Unboxed      as V
+import           MolecularDynamics.BHTree
 import           MolecularDynamics.Vec3
-import           Prelude hiding (zipWith3)
-import           Data.Vector.Unboxed
 
 type TimeStep      = Double
-type Force         = Vec3
-type Position      = Vec3
-type Velocity      = Vec3
-type Acceleration  = Vec3
-type ParticleType  = Int
-type ForceFunction = ParticleType -> ParticleType -> Position -> Position -> Acceleration
-
-data StrictId a = StrictId { runStrict :: !a }
-
-instance Functor StrictId where
-  fmap f = StrictId . f . runStrict
-
-instance Applicative StrictId where
-  pure    = StrictId
-  f <*> x = StrictId $ runStrict f $ runStrict x
-
-instance Monad StrictId where
-  return  = StrictId
-  x >>= f = f $ runStrict x
-
-type Particle = (Vec3, Vec3, Vec3, Double)
-
-position, velocity, acceleration :: Particle -> Vec3
-position (p, _, _, _)     = p
-velocity (_, v, _, _)     = v
-acceleration (_, _, a, _) = a
-
-size :: Particle -> Double
-size (_, _, _, s) = s
 
 data System = System
-  { particles    :: !(Vector Particle)
-  , particleSize :: Particle -> Double
-  }
+  { positions     :: !(Vector Vec3)
+  , velocities    :: !(Vector Vec3)
+  , accelerations :: !(Vector Vec3)
+  , masses        :: !(Vector Double)
+  } deriving (Show)
 
---instance Show System where
---  show = show . particles
+serializeSystem :: System -> B.ByteString
+serializeSystem = encode . V.toList . positions
 
--- data System = System
---   { positions     :: !(Array U DIM1 Vec3)
---   , velocities    :: !(Array U DIM1 Vec3)
---   , accelerations :: !(Array U DIM1 Vec3)
---   , types         :: Array U DIM1 ParticleType
--- 
---   -- The function computes the force between two particles based on their
---   -- types and positions
---   , forceFunction :: ParticleType -> ParticleType -> Position -> Position -> Acceleration
---   , computeSize   :: ParticleType -> Double
---   }
+-- The force of gravity between two objects.
+-- This function does not factor in the G constant, but that is simple to
+-- change.
+-- Presumably, one writes their own integrator and force function for the
+-- specific case they are interested in.
+gravitationalForce :: Double -> ForceFunction
+gravitationalForce !epsilon !p1 !m1 !p2 !m2 = (m1 * m2 / denom) *^ dp
+  where
+    dp    = p2 ^-^ p1
+    dp2   = magnitudeSq dp + epsilon * epsilon
+    -- The square root term is to normalize the dp vector
+    denom = sqrt dp2 * dp2
+{-# INLINE gravitationalForce #-}
 
--- instance Show System where
---   show System{..} = show positions ++ "\n" ++ show velocities ++ "\n" ++ show accelerations
---
--- -- | Compute the force that particle two exerts on particle one.
--- computeForceVector :: Vec3 -> Vec3 -> Force
--- computeForceVector !p1 !p2 = radi *^ normalized diff
---     where diff = p1 ^-^ p2
---           radi = 1.0 / magnitudeSq diff
--- {-# INLINE computeForceVector #-}
---
--- computeForces :: (Monad m) => Array U DIM1 Vec3 -> m (Array U DIM1 Force)
--- computeForces !particles = foldP (^+^) zeroV forcePairs
---     where (Z :. len) = R.extent particles
---
---           computeForce (Z :. i :. j)
---               | i == j    = zeroV
---               | otherwise =
---                   computeForceVector (particles `R.unsafeIndex` (Z :. i))
---                                      (particles `R.unsafeIndex` (Z :. j))
---
---           forcePairs = R.fromFunction (Z :. len :. len) computeForce
--- {-# INLINE computeForces #-}
---
--- integrateSystem :: TimeStep -> System -> System
--- integrateSystem dt sys@System{ positions     = pold
---                              , velocities    = vold
---                              , accelerations = aold }
---   = runStrict $ do
---       pnew <- computeUnboxedP $ zipWith3 (integratePosition dt) pold vold aold
---       anew <- computeForces pnew
---       vnew <- computeUnboxedP $ zipWith3 (integrateVelocity dt) vold aold anew
---       return $ sys{ positions = pnew, velocities = vnew, accelerations = anew }
--- {-# INLINE integrateSystem #-}
---
--- zipWith3 :: (Shape sh, Source r1 a, Source r2 b, Source r3 c)
---          => (a -> b -> c -> d)
---          -> Array r1 sh a -> Array r2 sh b -> Array r3 sh c
---          -> Array D sh d
--- zipWith3 f arr1 arr2 = R.zipWith ($) (R.zipWith f arr1 arr2)
--- {-# INLINE zipWith3 #-}
---
--- integratePosition :: TimeStep -> Vec3 -> Vec3 -> Vec3 -> Vec3
--- integratePosition dt p v a = p ^+^ dt *^ v ^+^ (0.5 * dt) *^ a
--- {-# INLINE integratePosition #-}
---
--- integrateVelocity :: TimeStep -> Vec3 -> Vec3 -> Vec3 -> Vec3
--- integrateVelocity dt vold anew aold = vold ^+^ (0.5 * dt) *^ (anew ^+^ aold)
--- {-# INLINE integrateVelocity #-}
+-- `updatePos` and `updateVel` are components of the Verlet integration procedure
+-- found here: https://en.wikipedia.org/wiki/Verlet_integration.
+-- Verlet integration has nice energy conservation properties.
+updatePos :: Double -> Vec3 -> Vec3 -> Vec3 -> Vec3
+updatePos !ts !p !v !a = p ^+^ ts *^ v ^+^ (0.5 * ts * ts) *^ a
+{-# INLINE updatePos #-}
+
+updateVel :: Double -> Vec3 -> Vec3 -> Vec3 -> Vec3
+updateVel !ts !v !a !a' = v ^+^ (0.5 * ts) *^ (a ^+^ a')
+{-# INLINE updateVel #-}
+
+-- This is responsible for time stepping the whole system by the specified time
+-- unit.
+integrateSystem :: TimeStep -> System -> System
+integrateSystem ts sys@System{..}
+  = sys { positions = pos', velocities = vel', accelerations = acc' }
+  where
+    forceFunction = gravitationalForce 0.01
+    -- Create the Barnes Hut tree from the positions and masses
+    tree = createBHTree $ V.zip positions masses
+
+    -- Bang, bang, bang, bang
+    updateParticle :: Vec3 -> Vec3 -> Vec3 -> Double -> (Vec3, Vec3, Vec3)
+    updateParticle !p !v !a !m = (p', v', a')
+      where
+        !p' = updatePos ts p v a
+        !a' = computeForce tree forceFunction p m ^/ m
+        !v' = updateVel ts v a a'
+
+    (pos', vel', acc') = V.unzip3
+                       $ V.zipWith4 updateParticle positions velocities accelerations masses
 

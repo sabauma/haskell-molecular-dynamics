@@ -1,16 +1,18 @@
 {-# LANGUAGE BangPatterns    #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ViewPatterns    #-}
-module Main where
+module MolecularDynamics.BHTree (createBHTree, computeForce, ForceFunction) where
 
 import           Control.Applicative
 import           Control.DeepSeq
-import           Control.Exception           (evaluate)
-import           Control.Monad               (void)
-import           Data.Time.Clock
 import           Data.Vector.Unboxed         (Unbox, Vector)
 import qualified Data.Vector.Unboxed         as V
 import           MolecularDynamics.Vec3
+
+threshold :: Double
+threshold = 0.25
+
+type ForceFunction = Vec3 -> Double -> Vec3 -> Double -> Vec3
 
 -- A BHNode consists of a centers, the extent of the node in each direction, and
 -- all the subtrees.
@@ -22,17 +24,17 @@ data BHNode = BHNode
   { com      :: {-# UNPACK #-} !Vec3
   , extent   :: {-# UNPACK #-} !Double
   , mass     :: {-# UNPACK #-} !Double
-  , subtrees :: ![BHNode]
+  , subtrees :: ![BHNode]  -- TODO: Look into storing these using a vector as well
   } deriving (Show)
 
 instance NFData BHNode where
   rnf BHNode{..} = rnf subtrees
 
 data Centroid = Centroid {-# UNPACK #-} !Vec3 {-# UNPACK #-} !Double
-  deriving Show
+  deriving (Show)
 
 data BoundingBox = BoundingBox {-# UNPACK #-} !Vec3 {-# UNPACK #-} !Vec3
-  deriving Show
+  deriving (Show)
 
 type PositionAndMass = (Vec3, Double)
 
@@ -40,28 +42,16 @@ projL :: (Unbox a, Unbox b) => Vector (a, b) -> Vector a
 projL = V.map fst
 {-# INLINE projL #-}
 
-projR :: (Unbox a, Unbox b) => Vector (a, b) -> Vector b
-projR = V.map snd
-{-# INLINE projR #-}
-
-leaves :: BHNode -> Int
-leaves (subtrees -> s)
-  | null s    = 1
-  | otherwise = sum $ map leaves s
+--leaves :: BHNode -> Int
+--leaves (subtrees -> s)
+--  | null s    = 1
+--  | otherwise = sum $ map leaves s
 
 boxCenter, boxSpan :: BoundingBox -> Vec3
-boxCenter (BoundingBox l r) = (r ^+^ l) ^* 0.5
-boxSpan (BoundingBox l r)   = r ^-^ l
+boxCenter (BoundingBox low high) = 0.5 *^ (high ^+^ low)
+boxSpan (BoundingBox low high)   = high ^-^ low
 {-# INLINE boxCenter #-}
 {-# INLINE boxSpan   #-}
-
-vectorMax :: Vec3 -> Vec3 -> Vec3
-vectorMax (Vec3 a b c) (Vec3 x y z) = Vec3 (max a x) (max b y) (max c z)
-{-# INLINE vectorMax #-}
-
-vectorMin :: Vec3 -> Vec3 -> Vec3
-vectorMin (Vec3 a b c) (Vec3 x y z) = Vec3 (min a x) (min b y) (min c z)
-{-# INLINE vectorMin #-}
 
 dup :: a -> (a, a)
 dup x = (x, x)
@@ -98,14 +88,6 @@ subBoxes (BoundingBox (Vec3 minx miny minz) (Vec3 maxx maxy maxz)) (Vec3 cx cy c
   , (yl, yr) <- [(miny, cy), (cy, maxy)]
   , (xl, xr) <- [(minx, cx), (cx, maxx)] ]
 {-# INLINE subBoxes #-}
-  {-[ BoundingBox (Vec3 minx miny minz) (Vec3 cx   cy   cz)-}
-  {-, BoundingBox (Vec3 cx   miny minz) (Vec3 maxx cy   cz)-}
-  {-, BoundingBox (Vec3 minx cy   minz) (Vec3 cx   maxy cz)-}
-  {-, BoundingBox (Vec3 cx   cy   minz) (Vec3 maxx maxy cz)-}
-  {-, BoundingBox (Vec3 minx miny cz) (Vec3 cx   cy   maxz)-}
-  {-, BoundingBox (Vec3 cx   miny cz) (Vec3 maxx cy   maxz)-}
-  {-, BoundingBox (Vec3 minx cy   cz) (Vec3 cx   maxy maxz)-}
-  {-, BoundingBox (Vec3 cx   cy   cz) (Vec3 maxx maxy maxz) ]-}
 
 -- It would be nice if this could be done in a single pass, but this is simple.
 partitionParticles :: Vector PositionAndMass -> Vector Int -> [Vector PositionAndMass]
@@ -142,24 +124,29 @@ createBHTree :: Vector PositionAndMass -> BHNode
 createBHTree = createBHTreeWithBox <$> computeBounds . projL <*> id
 {-# INLINE createBHTree #-}
 
-test :: Vector (Vec3, Double)
-test = V.fromList $ do
-  x <- [1 .. 100]
-  y <- [1 .. 100]
-  z <- [1 .. 100]
-  return (Vec3 x y z, x + y + z)
+-- Are we far enough away from the center of mass of the node to treat this tree
+-- as an aggregate of its subcomponents?
+isFar :: BHNode -> Vec3 -> Bool
+isFar BHNode{..} !v = (extent * extent / dist) < t2
+  where
+    t2   = threshold * threshold
+    dist = magnitudeSq (com ^-^ v)
+{-# INLINE isFar #-}
 
-testTree :: BHNode
-testTree = createBHTree test
-
-main :: IO ()
-main = do
-  void $ evaluate test
-  t1 <- getCurrentTime
-  print $ leaves testTree
-  t2 <- getCurrentTime
-  print $ diffUTCTime t2 t1
-
---test :: Vector (Vec3, Double)
---test = V.fromList [(Vec3 1 1 1, 1), (Vec3 0 0 1, 2), (Vec3 0 0 0, 3), (Vec3 0.5 0.5 0.5, 4)]
+-- Compute the force vector from using the Barnes Hut tree.
+-- We assume that the force function can be modeled as x'' = F(x).
+-- To do so, we need the particle's position and "mass" equivalent.
+computeForce :: BHNode -> ForceFunction -> Vec3 -> Double -> Vec3
+computeForce node accel pos pmass = go node
+  where
+    -- Do the actual tree traversal.
+    -- It may be worth converting the subtrees into a boxed vector rather than
+    -- using a list. `sumV` gives markedly better performance in this case,
+    -- likely due to the fact that it fuses with the map operations while foldl'
+    -- cannot fuse with map.
+    go n@BHNode{..}
+      | null subtrees = accel com mass pos pmass
+      | isFar n pos   = accel com mass pos pmass
+      | otherwise     = sumV $ map go subtrees
+{-# INLINE computeForce #-}
 
