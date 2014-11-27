@@ -1,7 +1,15 @@
 {-# LANGUAGE BangPatterns    #-}
+{-# LANGUAGE CPP             #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE ViewPatterns    #-}
-module MolecularDynamics.BHTree (createBHTree, computeForce, ForceFunction) where
+module MolecularDynamics.BHTree
+  ( createBHTree
+  , computeForce
+  , ForceFunction
+  ) where
+
+#if defined (PAR_TREE)
+import           Control.Parallel.Strategies
+#endif
 
 import           Control.Applicative
 import           Control.DeepSeq
@@ -41,11 +49,6 @@ type PositionAndMass = (Vec3, Double)
 projL :: (Unbox a, Unbox b) => Vector (a, b) -> Vector a
 projL = V.map fst
 {-# INLINE projL #-}
-
---leaves :: BHNode -> Int
---leaves (subtrees -> s)
---  | null s    = 1
---  | otherwise = sum $ map leaves s
 
 boxCenter, boxSpan :: BoundingBox -> Vec3
 boxCenter (BoundingBox low high) = 0.5 *^ (high ^+^ low)
@@ -109,8 +112,8 @@ splitPoints box points
 {-# INLINE splitPoints #-}
 
 -- Compute a Barnes-Hut tree using a vector of positions and masses.
-createBHTreeWithBox :: BoundingBox -> Vector PositionAndMass -> BHNode
-createBHTreeWithBox box ps
+createBHTreeWithBox :: Int -> BoundingBox -> Vector PositionAndMass -> BHNode
+createBHTreeWithBox n box ps
   | V.length ps <= 1 = BHNode { com = com, mass = mass, extent = extent, subtrees = [] }
   | otherwise        = BHNode { com = com, mass = mass, extent = extent, subtrees = subtrees }
   where
@@ -118,26 +121,33 @@ createBHTreeWithBox box ps
     subspaces         = splitPoints box ps
     Vec3 dx dy dz     = boxSpan box
     extent            = dx `min` dy `min` dz
-    subtrees          = map (uncurry createBHTreeWithBox) subspaces
+#if defined (PAR_TREE)
+    subtrees
+      | n <= 0    = map (uncurry $ createBHTreeWithBox (n - 1)) subspaces
+      | otherwise = map (uncurry $ createBHTreeWithBox (n - 1)) subspaces `using` parList rseq
+#else
+    subtrees = map (uncurry $ createBHTreeWithBox (n - 1)) subspaces
+#endif
 
 createBHTree :: Vector PositionAndMass -> BHNode
-createBHTree = createBHTreeWithBox <$> computeBounds . projL <*> id
+createBHTree = createBHTreeWithBox 4 <$> computeBounds . projL <*> id
 {-# INLINE createBHTree #-}
 
 -- Are we far enough away from the center of mass of the node to treat this tree
 -- as an aggregate of its subcomponents?
 isFar :: BHNode -> Vec3 -> Bool
-isFar BHNode{..} !v = (extent * extent / dist) < t2
+isFar BHNode{..} !v = (ext2 / dist2) < t2
   where
-    t2   = threshold * threshold
-    dist = magnitudeSq (com ^-^ v)
+    t2    = threshold * threshold
+    ext2  = extent * extent
+    dist2 = magnitudeSq (com ^-^ v)
 {-# INLINE isFar #-}
 
 -- Compute the force vector from using the Barnes Hut tree.
 -- We assume that the force function can be modeled as x'' = F(x).
 -- To do so, we need the particle's position and "mass" equivalent.
 computeForce :: BHNode -> ForceFunction -> Vec3 -> Double -> Vec3
-computeForce node accel pos pmass = go node
+computeForce !node forceFunc !pos !pmass = go node
   where
     -- Do the actual tree traversal.
     -- It may be worth converting the subtrees into a boxed vector rather than
@@ -145,8 +155,7 @@ computeForce node accel pos pmass = go node
     -- likely due to the fact that it fuses with the map operations while foldl'
     -- cannot fuse with map.
     go n@BHNode{..}
-      | null subtrees = accel com mass pos pmass
-      | isFar n pos   = accel com mass pos pmass
-      | otherwise     = sumV $ map go subtrees
+      | null subtrees || isFar n pos = forceFunc com mass pos pmass
+      | otherwise                    = sumV $ map go subtrees
 {-# INLINE computeForce #-}
 
