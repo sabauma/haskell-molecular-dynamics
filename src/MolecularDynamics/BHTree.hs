@@ -10,12 +10,12 @@ module MolecularDynamics.BHTree
 
 #if defined (PAR_TREE)
 import           Control.Parallel.Strategies
+import           Data.Vector.Strategies      (parVector)
 #endif
 
 import           Control.Applicative
 import           Control.DeepSeq
 import qualified Data.Vector                 as BV
-import           Data.Vector.Strategies      (parVector)
 import           Data.Vector.Unboxed         (Unbox, Vector)
 import qualified Data.Vector.Unboxed         as V
 import           MolecularDynamics.Vec3
