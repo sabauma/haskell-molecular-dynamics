@@ -20,18 +20,18 @@ import           Data.Vector.Unboxed         (Unbox, Vector)
 import qualified Data.Vector.Unboxed         as V
 import           MolecularDynamics.Vec3
 
+-- Is this a good cutoff?
 threshold :: Double
 threshold = 0.25
 
-{-type ForceFunction = Vec3 -> Double -> Vec3 -> Double -> Vec3-}
 type PotentialFunction = Vec3 -> Double -> Vec3 -> Vec3
 
 -- A BHNode consists of a centers, the extent of the node in each direction, and
 -- all the subtrees.
--- The `mass` field contains the aggregate "mass" of all the objects contained
--- in the node. For a gravitational simulation, that size would be the aggregate
--- mass of the objects, but it could also be charge or some other physical
--- propery.
+-- The `mass` field is the aggregate "mass" of all the objects contained
+-- in the node. For a gravitational simulation, that mass would be the aggregate
+-- mass of the objects, but it could also be total charge or some other physical
+-- property.
 data BHNode = BHNode
   { com      :: {-# UNPACK #-} !Vec3
   , extent   :: {-# UNPACK #-} !Double
@@ -150,9 +150,9 @@ isFar BHNode{..} !v = (ext2 / dist2) < t2
     dist2 = magnitudeSq (com ^-^ v)
 {-# INLINE isFar #-}
 
--- Compute the force vector from using the Barnes Hut tree.
--- We assume that the force function can be modeled as x'' = F(x).
--- To do so, we need the particle's position and "mass" equivalent.
+-- Compute the force potential using the Barnes Hut tree.
+-- To do so, we need only need the particle's position, and the user may compute
+-- the net force by multiplying by the "mass" equivalent of the particle.
 computePotential :: BHNode -> PotentialFunction -> Vec3 -> Vec3
 computePotential !node potential !pos = go node
   where
