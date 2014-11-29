@@ -1,42 +1,42 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ViewPatterns #-}
 module Main (main) where
 
 import           Control.Concurrent
+import           Control.Concurrent.STM
 import           Control.Monad
+import qualified Data.ByteString          as BS
 import qualified Data.ByteString.Lazy     as B
-import           Data.Vector.Unboxed (Vector)
-import qualified Data.Vector.Unboxed as V
-import           Text.Printf (printf)
+import qualified Data.Vector.Unboxed      as V
+import           System.Environment       (getArgs)
+import           System.IO.Unsafe         (unsafePerformIO)
+import           Text.Printf              (printf)
 
 import           MolecularDynamics.System
 import           MolecularDynamics.Vec3
 
-sideLength :: Double
-sideLength = 50
+-- So naughty
+writers :: TVar Int
+writers = unsafePerformIO $ newTVarIO 0
+{-# NOINLINE writers #-}
 
---positions' :: [Vec3]
---positions' = Vec3 <$> [1 .. sideLength] <*> [1 .. sideLength] <*> [1 .. sideLength]
-positions' :: [Vec3]
-positions' =
-  [ Vec3 (i / sideLength) (j / sideLength) (k / sideLength)
-  | i <- [0 .. sideLength - 1]
-  , j <- [0 .. sideLength - 1]
-  , k <- [0 .. sideLength - 1] ]
-
-pos, vel, acc :: Vector Vec3
-pos = V.fromList positions'
-vel = V.fromList $ map (const zeroV) positions'
-acc = V.fromList $ map (const zeroV) positions'
-
-mas :: Vector Double
-mas = V.fromList $ map (const 1) positions'
-
-system :: System
-system = System { positions     = pos
-                , velocities    = vel
-                , accelerations = acc
-                , masses        = mas
-                , epsilon       = 0.0001 }
+makeCube :: Int -> System
+makeCube (fromIntegral -> sideLength)
+  = System { positions     = pos
+           , velocities    = vel
+           , accelerations = acc
+           , masses        = mas
+           , epsilon       = eps }
+  where
+    positions' = [ Vec3 (i / sideLength) (j / sideLength) (k / sideLength)
+                 | i <- [0 .. sideLength - 1]
+                 , j <- [0 .. sideLength - 1]
+                 , k <- [0 .. sideLength - 1] ]
+    pos = V.fromList positions'
+    vel = V.map (const zeroV) pos
+    acc = vel
+    mas = V.map (const 1) pos
+    eps = 1 / (1000 * sideLength * sideLength)
 
 runSim :: Int -> (System -> System) -> System -> System
 runSim k f = go k
@@ -45,7 +45,19 @@ runSim k f = go k
     go n !sys = go (n-1) (f sys)
 
 writeSystem :: String -> System -> IO ()
-writeSystem fname sys = B.writeFile fname (serializeSystem sys)
+writeSystem fname sys = do
+  atomically $ modifyTVar writers succ
+  void $ forkIO $ do
+    BS.writeFile fname (serializeSystemBin sys)
+    atomically $ modifyTVar writers pred
+
+-- Wait for all writers to complete.
+-- This assumes that no new writers will be created after calling
+-- this functon, obviously.
+awaitWriters :: IO ()
+awaitWriters = atomically $ do
+  v <- readTVar writers
+  unless (v == 0) retry
 
 runWithRecord :: String -> Int -> (System -> System) -> System -> IO System
 runWithRecord baseName k f = go 0
@@ -54,11 +66,26 @@ runWithRecord baseName k f = go 0
       | n >= k    = return sys
       | otherwise = do
         let !sys' = f sys
-            fname = printf "%s%0.6d.csv" baseName n
-        void $ forkIO $ writeSystem fname sys'
+            fname = printf "%s%0.6d.dat" baseName n
+        writeSystem fname sys'
         go (n + 1) sys'
 
 main :: IO ()
-{-main = print . V.length . positions $ runSim 1 (integrateSystem 0.00001) system-}
-main = print . V.length . positions =<< runWithRecord "test" 1000 (integrateSystem 0.00001) system
+main = do
+  [n] <- getArgs
+  sys <- readPVMSystem n
+  -- let !sys = makeCube n
+  print $ V.length $ positions sys
+  void $ runWithRecord "test" 10 (integrateSystem 0.0050) sys
+  putStrLn "Awaiting writers"
+  awaitWriters
+
+{-main :: IO ()-}
+{-main = do-}
+  {-[n] <- map read `fmap` getArgs-}
+  {-let !sys = makeCube n-}
+  {-print $ V.length $ positions sys-}
+  {-void $ runWithRecord "test" 10 (integrateSystem 0.000001) sys-}
+  {-putStrLn "Awaiting writers"-}
+  {-awaitWriters-}
 

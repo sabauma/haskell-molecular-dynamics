@@ -6,6 +6,7 @@ cabal-dev
 *.chs.h
 *.swp
 *.csv
+*.dat
 .virtualenv
 .hsenv
 .cabal-sandbox/

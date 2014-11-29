@@ -2,9 +2,10 @@
 {-# LANGUAGE CPP             #-}
 {-# LANGUAGE RecordWildCards #-}
 module MolecularDynamics.BHTree
-  ( createBHTree
-  , computeForce
-  , ForceFunction
+  ( BHNode
+  , createBHTree
+  , computePotential
+  , PotentialFunction
   ) where
 
 #if defined (PAR_TREE)
@@ -13,6 +14,8 @@ import           Control.Parallel.Strategies
 
 import           Control.Applicative
 import           Control.DeepSeq
+import qualified Data.Vector                 as BV
+import           Data.Vector.Strategies      (parVector)
 import           Data.Vector.Unboxed         (Unbox, Vector)
 import qualified Data.Vector.Unboxed         as V
 import           MolecularDynamics.Vec3
@@ -20,7 +23,8 @@ import           MolecularDynamics.Vec3
 threshold :: Double
 threshold = 0.25
 
-type ForceFunction = Vec3 -> Double -> Vec3 -> Double -> Vec3
+{-type ForceFunction = Vec3 -> Double -> Vec3 -> Double -> Vec3-}
+type PotentialFunction = Vec3 -> Double -> Vec3 -> Vec3
 
 -- A BHNode consists of a centers, the extent of the node in each direction, and
 -- all the subtrees.
@@ -32,7 +36,7 @@ data BHNode = BHNode
   { com      :: {-# UNPACK #-} !Vec3
   , extent   :: {-# UNPACK #-} !Double
   , mass     :: {-# UNPACK #-} !Double
-  , subtrees :: ![BHNode]  -- TODO: Look into storing these using a vector as well
+  , subtrees :: {-# UNPACK #-} !(BV.Vector BHNode)
   } deriving (Show)
 
 instance NFData BHNode where
@@ -61,6 +65,7 @@ dup x = (x, x)
 {-# INLINE dup #-}
 
 -- God willing, all these operations will fuse
+-- TODO: Figure out if this function is a sequential bottleneck for large systems.
 computeBounds :: Vector Vec3 -> BoundingBox
 computeBounds = uncurry BoundingBox . V.foldl1' f . V.map dup
   where
@@ -84,26 +89,27 @@ cellIndex (Vec3 cx cy cz) (Vec3 x y z) = ix + 2 * iy + 4 * iz
     iz = fromEnum $ z > cz
 {-# INLINE cellIndex #-}
 
-subBoxes :: BoundingBox -> Vec3 -> [BoundingBox]
+subBoxes :: BoundingBox -> Vec3 -> BV.Vector BoundingBox
 subBoxes (BoundingBox (Vec3 minx miny minz) (Vec3 maxx maxy maxz)) (Vec3 cx cy cz) =
-  [ BoundingBox (Vec3 xl yl zl) (Vec3 xr yr zr)
-  | (zl, zr) <- [(minz, cz), (cz, maxz)]
-  , (yl, yr) <- [(miny, cy), (cy, maxy)]
-  , (xl, xr) <- [(minx, cx), (cx, maxx)] ]
+  BV.fromList
+    [ BoundingBox (Vec3 xl yl zl) (Vec3 xr yr zr)
+    | (zl, zr) <- [(minz, cz), (cz, maxz)]
+    , (yl, yr) <- [(miny, cy), (cy, maxy)]
+    , (xl, xr) <- [(minx, cx), (cx, maxx)] ]
 {-# INLINE subBoxes #-}
 
 -- It would be nice if this could be done in a single pass, but this is simple.
-partitionParticles :: Vector PositionAndMass -> Vector Int -> [Vector PositionAndMass]
-partitionParticles ps idx = [f 0, f 1, f 2, f 3, f 4, f 5, f 6, f 7]
+partitionParticles :: Vector PositionAndMass -> Vector Int -> BV.Vector (Vector PositionAndMass)
+partitionParticles ps idx = BV.map f $ BV.enumFromStepN 0 1 8
   where
     ps' = V.zip ps idx
     f i = projL $ V.filter ((== i) . snd) ps'
 {-# INLINE partitionParticles #-}
 
-splitPoints :: BoundingBox -> Vector PositionAndMass -> [(BoundingBox, Vector PositionAndMass)]
+splitPoints :: BoundingBox -> Vector PositionAndMass -> BV.Vector (BoundingBox, Vector PositionAndMass)
 splitPoints box points
-  | V.length points <= 1 = [(box, points)]
-  | otherwise            = filter (not . V.null . snd) $ zip boxes points'
+  | V.length points <= 1 = BV.singleton (box, points)
+  | otherwise            = BV.filter (not . V.null . snd) $ BV.zip boxes points'
   where
     mid     = boxCenter box
     idx     = V.map (cellIndex mid) $ projL points
@@ -113,8 +119,8 @@ splitPoints box points
 
 -- Compute a Barnes-Hut tree using a vector of positions and masses.
 createBHTreeWithBox :: Int -> BoundingBox -> Vector PositionAndMass -> BHNode
-createBHTreeWithBox n box ps
-  | V.length ps <= 1 = BHNode { com = com, mass = mass, extent = extent, subtrees = [] }
+createBHTreeWithBox !n !box !ps
+  | V.length ps <= 1 = BHNode { com = com, mass = mass, extent = extent, subtrees = BV.empty }
   | otherwise        = BHNode { com = com, mass = mass, extent = extent, subtrees = subtrees }
   where
     Centroid com mass = computeCenter ps
@@ -122,11 +128,12 @@ createBHTreeWithBox n box ps
     Vec3 dx dy dz     = boxSpan box
     extent            = dx `min` dy `min` dz
 #if defined (PAR_TREE)
+    -- The subtrees vector has a maximum length of 8
     subtrees
-      | n <= 0    = map (uncurry $ createBHTreeWithBox (n - 1)) subspaces
-      | otherwise = map (uncurry $ createBHTreeWithBox (n - 1)) subspaces `using` parList rseq
+      | n <= 0    = BV.map (uncurry $ createBHTreeWithBox (n - 1)) subspaces
+      | otherwise = BV.map (uncurry $ createBHTreeWithBox (n - 1)) subspaces `using` parVector 2
 #else
-    subtrees = map (uncurry $ createBHTreeWithBox (n - 1)) subspaces
+    subtrees = BV.map (uncurry $ createBHTreeWithBox (n - 1)) subspaces
 #endif
 
 createBHTree :: Vector PositionAndMass -> BHNode
@@ -146,16 +153,12 @@ isFar BHNode{..} !v = (ext2 / dist2) < t2
 -- Compute the force vector from using the Barnes Hut tree.
 -- We assume that the force function can be modeled as x'' = F(x).
 -- To do so, we need the particle's position and "mass" equivalent.
-computeForce :: BHNode -> ForceFunction -> Vec3 -> Double -> Vec3
-computeForce !node forceFunc !pos !pmass = go node
+computePotential :: BHNode -> PotentialFunction -> Vec3 -> Vec3
+computePotential !node potential !pos = go node
   where
     -- Do the actual tree traversal.
-    -- It may be worth converting the subtrees into a boxed vector rather than
-    -- using a list. `sumV` gives markedly better performance in this case,
-    -- likely due to the fact that it fuses with the map operations while foldl'
-    -- cannot fuse with map.
     go n@BHNode{..}
-      | null subtrees || isFar n pos = forceFunc com mass pos pmass
-      | otherwise                    = sumV $ map go subtrees
-{-# INLINE computeForce #-}
+      | BV.null subtrees || isFar n pos = potential com mass pos
+      | otherwise                       = BV.foldl1' (^+^) $ BV.map go subtrees
+{-# INLINE computePotential #-}
 
