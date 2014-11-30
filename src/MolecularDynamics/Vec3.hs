@@ -32,7 +32,7 @@ fromTriple :: (Double, Double, Double) -> Vec3
 fromTriple (x, y, z) = Vec3 x y z
 
 fromFloatTriple :: (Float, Float, Float) -> Vec3
-fromFloatTriple (x, y , z) = Vec3 (realToFrac x) (realToFrac y) (realToFrac z)
+fromFloatTriple (x, y, z) = Vec3 (realToFrac x) (realToFrac y) (realToFrac z)
 
 -- Provide instances for an efficient binary serialization
 instance Serialize Vec3 where

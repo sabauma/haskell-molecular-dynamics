@@ -12,7 +12,7 @@ module MolecularDynamics.System
   ) where
 
 #if defined (REPA_INTEGRATOR)
-import           Control.Monad.Identity   (Identity (..))
+import           Control.Monad.Identity   (runIdentity)
 import           Data.Array.Repa          ((:.) (..), Array, D, Shape, Source,
                                            Z (..), U, DIM1)
 import qualified Data.Array.Repa          as R
@@ -117,9 +117,7 @@ updateVel !ts !v !a !a' = v ^+^ (0.5 * ts) *^ (a ^+^ a')
 
 #if defined (REPA_INTEGRATOR)
 unboxedToRepa :: (V.Unbox a) => Vector a -> Array U DIM1 a
-unboxedToRepa v = R.fromUnboxed (Z :. l) v
-  where
-    l = V.length v
+unboxedToRepa v = let l = V.length v in R.fromUnboxed (Z :. l) v
 {-# INLINE unboxedToRepa #-}
 
 zipWith3Arr :: (Source r1 b1, Source r2 b2, Source r3 b3, Shape sh)
