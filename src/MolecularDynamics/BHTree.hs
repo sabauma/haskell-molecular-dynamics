@@ -13,11 +13,13 @@ import           Control.Parallel.Strategies
 import           Data.Vector.Strategies      (parVector)
 #endif
 
+import           Control.Monad.ST
 import           Control.Applicative
 import           Control.DeepSeq
 import qualified Data.Vector                 as BV
 import           Data.Vector.Unboxed         (Unbox, Vector)
 import qualified Data.Vector.Unboxed         as V
+import qualified Data.Vector.Unboxed.Mutable as MV
 import           MolecularDynamics.Vec3
 
 -- Is this a good cutoff?
@@ -98,13 +100,47 @@ subBoxes (BoundingBox (Vec3 minx miny minz) (Vec3 maxx maxy maxz)) (Vec3 cx cy c
     , (xl, xr) <- [(minx, cx), (cx, maxx)] ]
 {-# INLINE subBoxes #-}
 
--- It would be nice if this could be done in a single pass, but this is simple.
+-- A mutating version of parititionParticles which attempts to use fewer passes
+-- while remaining efficient. The pure version performs 8 traversals of the
+-- data, one for each bin.
 partitionParticles :: Vector PositionAndMass -> Vector Int -> BV.Vector (Vector PositionAndMass)
-partitionParticles ps idx = BV.map f $ BV.enumFromStepN 0 1 8
+partitionParticles ps idx = runST $ do
+  -- Get the number of objects in each bin
+  counts <- getCounts
+  -- Curent index for each bin
+  idxs <- MV.replicate 8 (0 :: Int)
+  -- Storage bins
+  bins <- BV.mapM MV.unsafeNew $ V.convert $ counts
+  -- Put each particle into a bin
+  V.zipWithM_ (place bins idxs) ps idx
+  -- Freeze the results
+  BV.mapM V.unsafeFreeze bins
   where
-    ps' = V.zip ps idx
-    f i = projL $ V.filter ((== i) . snd) ps'
+    getCounts :: ST s (Vector Int)
+    getCounts = do
+      counts <- MV.replicate 8 (0 :: Int)
+      V.forM_ idx $ \i -> do
+        v <- MV.unsafeRead counts i
+        MV.unsafeWrite counts i (v + 1)
+      V.unsafeFreeze counts
+
+    -- I won't even guess at thet type of this function
+    place bins idxs p idx = do
+      let bin = bins BV.! idx
+      -- Get the index into the corresponding bin
+      i <- MV.unsafeRead idxs idx
+      -- Write the particle to the appropriate bin location
+      MV.unsafeWrite bin i p
+      -- Increment the index into that bin
+      MV.unsafeWrite idxs idx (i + 1)
 {-# INLINE partitionParticles #-}
+
+-- It would be nice if this could be done in a single pass, but this is simple.
+-- partitionParticles :: Vector PositionAndMass -> Vector Int -> BV.Vector (Vector PositionAndMass)
+-- partitionParticles ps idx = BV.map f $ BV.enumFromStepN 0 1 8
+--   where
+--     ps' = V.zip ps idx
+--     f i = projL $ V.filter ((== i) . snd) ps'
 
 splitPoints :: BoundingBox -> Vector PositionAndMass -> BV.Vector (BoundingBox, Vector PositionAndMass)
 splitPoints box points
