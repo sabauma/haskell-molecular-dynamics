@@ -1,5 +1,7 @@
 module Main where
 
+import           Control.Exception  (evaluate)
+import           Control.Monad
 import           Control.Concurrent (getNumCapabilities)
 import           Criterion
 import           Criterion.Main
@@ -33,14 +35,14 @@ main = do
 
   defaultMainWith config
     [ bgroup "tree-creation" [
-        bench "cube-50" $ nf createBHTree $ V.zip (positions midCube) (masses midCube),
-        bench "cube-100" $ nf createBHTree $ V.zip (positions bigCube) (masses bigCube)
+        bench "cube-50"  $ nf createBHTree $! V.zip (positions midCube) (masses midCube),
+        bench "cube-100" $ nf createBHTree $! V.zip (positions bigCube) (masses bigCube)
       ]
     -- Weak head normal for is normal form for systems
     , bgroup "cube-simulations" [
-        bench "cube-20" $ whnf stepSystem (makeCube 20),
-        bench "cube-30"  $ whnf stepSystem (makeCube 30),
-        bench "cube-40"  $ whnf stepSystem (makeCube 40)
+        bench "cube-25"  $ whnf stepSystem $! makeCube 25,
+        bench "cube-30"  $ whnf stepSystem $! makeCube 30,
+        bench "cube-40"  $ whnf stepSystem $! makeCube 40
       ]
     ]
 
