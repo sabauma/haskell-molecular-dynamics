@@ -38,7 +38,9 @@ main = do
   defaultMainWith (makeConfig threads) [
       bgroup "tree-creation" [
         bench "cube-50"  $ nf createBHTree $! V.zip (positions midCube) (masses midCube),
-        bench "cube-100" $ nf createBHTree $! V.zip (positions bigCube) (masses bigCube)
+        bench "cube-100" $ nf createBHTree $! V.zip (positions bigCube) (masses bigCube),
+        env readDubinski $ \s -> bench "dubinski" $
+          nf createBHTree $! V.zip (positions s) (masses s)
       ],
       -- Weak head normal for is normal form for systems
       bgroup "cube-simulations" [
