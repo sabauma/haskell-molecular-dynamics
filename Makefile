@@ -1,11 +1,8 @@
 
-all:
-	cabal install -j
-
 clean:
 	cabal clean
 
-bench:
+all:
 	cabal configure --enable-benchmarks
 	cabal build
 	cabal bench --benchmark-options="+RTS -N1 -RTS --output report1.html"
