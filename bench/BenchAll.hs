@@ -1,7 +1,5 @@
 module Main where
 
-import           Control.Exception  (evaluate)
-import           Control.Monad
 import           Control.Concurrent (getNumCapabilities)
 import           Criterion
 import           Criterion.Main
@@ -26,14 +24,15 @@ smallCube = makeCube 20
 stepSystem :: System -> System
 stepSystem = integrateSystem 0.00001
 
+makeConfig :: Int -> Config
+makeConfig tc = defaultConfig { csvFile   = Just $ printf "bench%0.3d.csv" tc
+                              , timeLimit = 10 }
+
 main :: IO ()
 main = do
   threads <- getNumCapabilities
 
-  let config = defaultConfig { csvFile   = Just $ printf "bench%0.3d.csv" threads
-                             , timeLimit = 10 }
-
-  defaultMainWith config
+  defaultMainWith (makeConfig threads)
     [ bgroup "tree-creation" [
         bench "cube-50"  $ nf createBHTree $! V.zip (positions midCube) (masses midCube),
         bench "cube-100" $ nf createBHTree $! V.zip (positions bigCube) (masses bigCube)
