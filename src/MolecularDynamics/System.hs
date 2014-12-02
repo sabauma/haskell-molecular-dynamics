@@ -14,20 +14,22 @@ module MolecularDynamics.System
   ) where
 
 #if defined (REPA_INTEGRATOR)
-import           Control.Monad.Identity   (runIdentity)
-import           Data.Array.Repa          ((:.) (..), Array, D, DIM1, Shape,
-                                           Source, U, Z (..))
-import qualified Data.Array.Repa          as R
+import           Control.Monad.Identity              (runIdentity)
+import           Data.Array.Repa                     ((:.) (..), Array, D, DIM1,
+                                                      Shape, Source, U, Z (..))
+import qualified Data.Array.Repa                     as R
+import           Data.Array.Repa.Repr.HintInterleave (hintInterleave)
 #endif
 
-import qualified Data.ByteString          as BS
-import qualified Data.ByteString.Lazy     as BL
+import           Control.DeepSeq
+import qualified Data.ByteString                     as BS
+import qualified Data.ByteString.Lazy                as BL
 import           Data.Csv
-import qualified Data.Serialize           as S
-import qualified Data.Vector              as BV
-import           Data.Vector.Serialize    ()
-import           Data.Vector.Unboxed      (Vector)
-import qualified Data.Vector.Unboxed      as V
+import qualified Data.Serialize                      as S
+import qualified Data.Vector                         as BV
+import           Data.Vector.Serialize               ()
+import           Data.Vector.Unboxed                 (Vector)
+import qualified Data.Vector.Unboxed                 as V
 import           MolecularDynamics.BHTree
 import           MolecularDynamics.Vec3
 
@@ -40,6 +42,10 @@ data System = System
   , masses        :: !(Vector Double)
   , epsilon       :: {-# UNPACK #-} !Double
   } deriving (Show)
+
+instance NFData System where
+  -- WHNF is normal form for systems
+  rnf sys = sys `seq` ()
 
 makeCube :: Int -> System
 makeCube (fromIntegral -> sideLength)
@@ -176,7 +182,7 @@ integrateSystem ts sys@System{..}
       !p' <- R.computeUnboxedP $ zipWith3Arr (updatePos ts) p v a
       let !pvec = R.toUnboxed p'
           !tree = createBHTree $ V.zip pvec masses
-      !va <- R.computeUnboxedP $ zipWith3Arr (updateVelAcc tree) p' v a
+      !va <- R.computeUnboxedP $ hintInterleave $ zipWith3Arr (updateVelAcc tree) p' v a
       let (vvec, avec) = V.unzip $ R.toUnboxed va
       return (pvec, vvec, avec)
 #else

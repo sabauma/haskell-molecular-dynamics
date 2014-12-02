@@ -26,22 +26,26 @@ stepSystem = integrateSystem 0.00001
 
 makeConfig :: Int -> Config
 makeConfig tc = defaultConfig { csvFile   = Just $ printf "bench%0.3d.csv" tc
-                              , timeLimit = 10 }
+                              , timeLimit = 15 }
+
+readDubinski :: IO System
+readDubinski = readPVMSystem "./dubinski.tab"
 
 main :: IO ()
 main = do
   threads <- getNumCapabilities
 
-  defaultMainWith (makeConfig threads)
-    [ bgroup "tree-creation" [
+  defaultMainWith (makeConfig threads) [
+      bgroup "tree-creation" [
         bench "cube-50"  $ nf createBHTree $! V.zip (positions midCube) (masses midCube),
         bench "cube-100" $ nf createBHTree $! V.zip (positions bigCube) (masses bigCube)
-      ]
-    -- Weak head normal for is normal form for systems
-    , bgroup "cube-simulations" [
+      ],
+      -- Weak head normal for is normal form for systems
+      bgroup "cube-simulations" [
         bench "cube-25"  $ whnf stepSystem $! makeCube 25,
         bench "cube-30"  $ whnf stepSystem $! makeCube 30,
         bench "cube-40"  $ whnf stepSystem $! makeCube 40
-      ]
+      ],
+      env readDubinski $ bench "dubinski" . whnf stepSystem
     ]
 
