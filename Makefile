@@ -1,7 +1,4 @@
 
-clean:
-	cabal clean
-
 all:
 	cabal configure --enable-benchmarks
 	cabal build
@@ -13,3 +10,8 @@ all:
 	cabal bench --benchmark-options="+RTS -N6 -RTS --output report6.html"
 	cabal bench --benchmark-options="+RTS -N7 -RTS --output report7.html"
 	cabal bench --benchmark-options="+RTS -N8 -RTS --output report8.html"
+
+clean:
+	cabal clean
+
+
