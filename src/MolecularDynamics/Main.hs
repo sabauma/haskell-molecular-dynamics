@@ -1,5 +1,4 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE ViewPatterns #-}
 module Main (main) where
 
 import           Control.Concurrent
@@ -13,24 +12,6 @@ import           Text.Printf              (printf)
 
 import           MolecularDynamics.System
 import           MolecularDynamics.Vec3
-
-makeCube :: Int -> System
-makeCube (fromIntegral -> sideLength)
-  = System { positions     = pos
-           , velocities    = vel
-           , accelerations = acc
-           , masses        = mas
-           , epsilon       = eps }
-  where
-    positions' = [ Vec3 (i / sideLength) (j / sideLength) (k / sideLength)
-                 | i <- [0 .. sideLength - 1]
-                 , j <- [0 .. sideLength - 1]
-                 , k <- [0 .. sideLength - 1] ]
-    pos = V.fromList positions'
-    vel = V.map (const zeroV) pos
-    acc = vel
-    mas = V.map (const 1) pos
-    eps = 1 / (1000 * sideLength * sideLength)
 
 -- Iteratively perform updates ensuring we are nice and strict.
 runSim :: Int -> (System -> System) -> System -> System

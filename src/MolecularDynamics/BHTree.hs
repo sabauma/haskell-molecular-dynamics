@@ -9,8 +9,9 @@ module MolecularDynamics.BHTree
   ) where
 
 #if defined (PAR_TREE)
+import           Control.Monad.Par
 import           Control.Parallel.Strategies
-import           Data.Vector.Strategies      (parVector)
+import           Data.Vector.Strategies
 #endif
 
 import           Control.Monad.ST
@@ -103,8 +104,11 @@ subBoxes (BoundingBox (Vec3 minx miny minz) (Vec3 maxx maxy maxz)) (Vec3 cx cy c
 -- A mutating version of parititionParticles which attempts to use fewer passes
 -- while remaining efficient. The pure version performs 8 traversals of the
 -- data, one for each bin.
-partitionParticles :: Vector PositionAndMass -> Vector Int -> BV.Vector (Vector PositionAndMass)
-partitionParticles ps idx = runST $ do
+-- TODO: I think we can do better here
+partitionParticles :: Vector PositionAndMass
+                   -> Vec3
+                   -> BV.Vector (Vector PositionAndMass)
+partitionParticles ps mid = runST $ do
   -- Get the number of objects in each bin
   counts <- getCounts
   -- Curent index for each bin
@@ -116,6 +120,9 @@ partitionParticles ps idx = runST $ do
   -- Freeze the results
   BV.mapM V.unsafeFreeze bins
   where
+    idx :: Vector Int
+    idx = V.map (cellIndex mid . fst) ps
+
     getCounts :: ST s (Vector Int)
     getCounts = do
       counts <- MV.replicate 8 (0 :: Int)
@@ -125,14 +132,14 @@ partitionParticles ps idx = runST $ do
       V.unsafeFreeze counts
 
     -- I won't even guess at thet type of this function
-    place bins idxs p idx = do
-      let bin = bins BV.! idx
+    place bins idxs p index = do
+      let bin = bins BV.! index
       -- Get the index into the corresponding bin
-      i <- MV.unsafeRead idxs idx
+      i <- MV.unsafeRead idxs index
       -- Write the particle to the appropriate bin location
       MV.unsafeWrite bin i p
       -- Increment the index into that bin
-      MV.unsafeWrite idxs idx (i + 1)
+      MV.unsafeWrite idxs index (i + 1)
 {-# INLINE partitionParticles #-}
 
 -- It would be nice if this could be done in a single pass, but this is simple.
@@ -148,9 +155,9 @@ splitPoints box points
   | otherwise            = BV.filter (not . V.null . snd) $ BV.zip boxes points'
   where
     mid     = boxCenter box
-    idx     = V.map (cellIndex mid) $ projL points
+    {-idx     = V.map (cellIndex mid) $ projL points-}
     boxes   = subBoxes box mid
-    points' = partitionParticles points idx
+    points' = partitionParticles points mid
 {-# INLINE splitPoints #-}
 
 -- Compute a Barnes-Hut tree using a vector of positions and masses.
@@ -164,10 +171,9 @@ createBHTreeWithBox !n !box !ps
     Vec3 dx dy dz     = boxSpan box
     extent            = dx `min` dy `min` dz
 #if defined (PAR_TREE)
-    -- The subtrees vector has a maximum length of 8
     subtrees
       | n <= 0    = BV.map (uncurry $ createBHTreeWithBox (n - 1)) subspaces
-      | otherwise = BV.map (uncurry $ createBHTreeWithBox (n - 1)) subspaces `using` parVector 2
+      | otherwise = BV.map (uncurry $ createBHTreeWithBox (n - 1)) subspaces `using` parVector 1
 #else
     subtrees = BV.map (uncurry $ createBHTreeWithBox (n - 1)) subspaces
 #endif

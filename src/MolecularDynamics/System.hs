@@ -2,9 +2,11 @@
 {-# LANGUAGE CPP                   #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RecordWildCards       #-}
+{-# LANGUAGE ViewPatterns          #-}
 module MolecularDynamics.System
   ( System (..)
   , integrateSystem
+  , makeCube
   , readPVSystem
   , readPVMSystem
   , serializeSystem
@@ -13,8 +15,8 @@ module MolecularDynamics.System
 
 #if defined (REPA_INTEGRATOR)
 import           Control.Monad.Identity   (runIdentity)
-import           Data.Array.Repa          ((:.) (..), Array, D, Shape, Source,
-                                           Z (..), U, DIM1)
+import           Data.Array.Repa          ((:.) (..), Array, D, DIM1, Shape,
+                                           Source, U, Z (..))
 import qualified Data.Array.Repa          as R
 #endif
 
@@ -38,6 +40,24 @@ data System = System
   , masses        :: !(Vector Double)
   , epsilon       :: {-# UNPACK #-} !Double
   } deriving (Show)
+
+makeCube :: Int -> System
+makeCube (fromIntegral -> sideLength)
+  = System { positions     = pos
+           , velocities    = vel
+           , accelerations = acc
+           , masses        = mas
+           , epsilon       = eps }
+  where
+    positions' = [ Vec3 (i / sideLength) (j / sideLength) (k / sideLength)
+                 | i <- [0 .. sideLength - 1]
+                 , j <- [0 .. sideLength - 1]
+                 , k <- [0 .. sideLength - 1] ]
+    pos = V.fromList positions'
+    vel = V.map (const zeroV) pos
+    acc = vel
+    mas = V.map (const 1) pos
+    eps = 1 / (1000 * sideLength * sideLength)
 
 serializeSystem :: System -> BL.ByteString
 serializeSystem = encode . V.toList . positions
