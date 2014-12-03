@@ -9,7 +9,6 @@ module MolecularDynamics.BHTree
   ) where
 
 #if defined (PAR_TREE)
-import           Control.Monad.Par
 import           Control.Parallel.Strategies
 import           Data.Vector.Strategies
 #endif
@@ -127,7 +126,7 @@ partitionParticles ps mid = runST $ do
     -- particles in each octant.
     indicesAndCounts :: ST s (Vector Int, Vector Int)
     indicesAndCounts = do
-      counts <- MV.replicate 8 0
+      counts  <- MV.replicate 8 0
       indices <- V.forM (projL ps) $ \p -> do
         let index = cellIndex mid p
         v <- MV.unsafeRead counts index
