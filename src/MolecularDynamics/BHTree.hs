@@ -159,7 +159,6 @@ splitPoints box points
   | otherwise            = BV.filter (not . V.null . snd) $ BV.zip boxes points'
   where
     mid     = boxCenter box
-    {-idx     = V.map (cellIndex mid) $ projL points-}
     boxes   = subBoxes box mid
     points' = partitionParticles points mid
 {-# INLINE splitPoints #-}

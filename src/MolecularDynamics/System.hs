@@ -176,7 +176,7 @@ integrateSystem ts sys@System{..}
     {-# INLINE updateVelAcc #-}
 
 #if defined (REPA_INTEGRATOR)
-    (!pos', !vel', !acc') = runIdentity $ do
+    (pos', vel', acc') = runIdentity $ do
       let -- Convert everything to repa arrays
           p = unboxedToRepa positions
           v = unboxedToRepa velocities
@@ -193,3 +193,4 @@ integrateSystem ts sys@System{..}
     (vel', acc') = V.unzip
                  $ V.zipWith3 (updateVelAcc tree) pos' velocities accelerations
 #endif
+
