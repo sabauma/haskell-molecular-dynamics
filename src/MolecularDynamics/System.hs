@@ -79,18 +79,19 @@ readPVSystem :: String -> IO System
 readPVSystem fname = do
   input <- BL.readFile fname
   let records = decode NoHeader input
-  case records of
-       Left err -> error err
-       Right ps -> let ps' = BV.map convertPV ps
-                       pos = BV.convert $ BV.map fst ps'
-                       vel = BV.convert $ BV.map snd ps'
-                       acc = V.map (const zeroV) pos
-                       mas = V.map (const 1) pos
-                   in return System { positions     = pos
-                                    , velocities    = vel
-                                    , accelerations = acc
-                                    , masses        = mas
-                                    , epsilon       = 0.000001 }
+  return $ either error process records
+  where
+    process ps = System { positions     = pos
+                        , velocities    = vel
+                        , accelerations = acc
+                        , masses        = mas
+                        , epsilon       = 0.000001 }
+      where
+        ps' = BV.map convertPV ps
+        pos = BV.convert $ BV.map fst ps'
+        vel = BV.convert $ BV.map snd ps'
+        acc = V.map (const zeroV) pos
+        mas = V.map (const 1) pos
 
 convertPVM :: (Double, Double, Double, Double, Double, Double, Double)
            -> (Vec3, Vec3, Double)
@@ -101,18 +102,19 @@ readPVMSystem :: String -> IO System
 readPVMSystem fname = do
   input <- BL.readFile fname
   let records = decode NoHeader input
-  case records of
-       Left err -> error err
-       Right ps -> let ps' = BV.map convertPVM ps
-                       pos = BV.convert $ BV.map (\(p, _, _) -> p) ps'
-                       vel = BV.convert $ BV.map (\(_, v, _) -> v) ps'
-                       mas = BV.convert $ BV.map (\(_, _, m) -> m) ps'
-                       acc = V.map (const zeroV) pos
-                   in return System { positions     = pos
-                                    , velocities    = vel
-                                    , accelerations = acc
-                                    , masses        = mas
-                                    , epsilon       = 0.000001 }
+  return $ either error process records
+    where
+      process ps = System { positions     = pos
+                          , velocities    = vel
+                          , accelerations = acc
+                          , masses        = mas
+                          , epsilon       = 0.000001 }
+        where
+          ps' = BV.map convertPVM ps
+          pos = BV.convert $ BV.map (\(p, _, _) -> p) ps'
+          vel = BV.convert $ BV.map (\(_, v, _) -> v) ps'
+          mas = BV.convert $ BV.map (\(_, _, m) -> m) ps'
+          acc = V.map (const zeroV) pos
 
 -- The force of gravity between two objects.
 -- This function does not factor in the G constant, but that is simple to

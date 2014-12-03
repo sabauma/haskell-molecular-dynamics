@@ -92,6 +92,9 @@ cellIndex (Vec3 cx cy cz) (Vec3 x y z) = ix + 2 * iy + 4 * iz
     iz = fromEnum $ z > cz
 {-# INLINE cellIndex #-}
 
+-- Not that the values found here must be in step with those given by `cellIndex`.
+-- In this case, that means that the x-dimension is treated as the least
+-- significant digit and the z-dimension is the most signficant.
 subBoxes :: BoundingBox -> Vec3 -> BV.Vector BoundingBox
 subBoxes (BoundingBox (Vec3 minx miny minz) (Vec3 maxx maxy maxz)) (Vec3 cx cy cz) =
   BV.fromList
@@ -101,18 +104,18 @@ subBoxes (BoundingBox (Vec3 minx miny minz) (Vec3 maxx maxy maxz)) (Vec3 cx cy c
     , (xl, xr) <- [(minx, cx), (cx, maxx)] ]
 {-# INLINE subBoxes #-}
 
--- A mutating version of parititionParticles which attempts to use fewer passes
--- while remaining efficient. The pure version performs 8 traversals of the
--- data, one for each bin.
--- TODO: I think we can do better here
+-- Partition a set of particles into the octants specified by `mid`.
+-- `mid` defines the center of the system, and each particle is placed into an
+-- array with all other particles in that octant.
+-- The specific octant is based on the `cellIndex` function
 partitionParticles :: Vector PositionAndMass
                    -> Vec3
                    -> BV.Vector (Vector PositionAndMass)
 partitionParticles ps mid = runST $ do
   -- Get the number of objects in each bin
-  counts <- getCounts
+  (idx, counts) <- indicesAndCounts
   -- Curent index for each bin
-  idxs <- MV.replicate 8 (0 :: Int)
+  idxs <- MV.replicate 8 0
   -- Storage bins
   bins <- BV.mapM MV.unsafeNew $ V.convert $ counts
   -- Put each particle into a bin
@@ -120,18 +123,26 @@ partitionParticles ps mid = runST $ do
   -- Freeze the results
   BV.mapM V.unsafeFreeze bins
   where
-    idx :: Vector Int
-    idx = V.map (cellIndex mid . fst) ps
+    -- Compute the octant for each particle and count the total number of
+    -- particles in each octant.
+    indicesAndCounts :: ST s (Vector Int, Vector Int)
+    indicesAndCounts = do
+      counts <- MV.replicate 8 0
+      indices <- V.forM (projL ps) $ \p -> do
+        let index = cellIndex mid p
+        v <- MV.unsafeRead counts index
+        MV.unsafeWrite counts index (v + 1)
+        return index
+      counts' <- V.unsafeFreeze counts
+      return (indices, counts')
 
-    getCounts :: ST s (Vector Int)
-    getCounts = do
-      counts <- MV.replicate 8 (0 :: Int)
-      V.forM_ idx $ \i -> do
-        v <- MV.unsafeRead counts i
-        MV.unsafeWrite counts i (v + 1)
-      V.unsafeFreeze counts
-
-    -- I won't even guess at thet type of this function
+    -- Place each particle into its corresponding octant bin.
+    -- This assumes that each bin is large enough to accomodate the particle.
+    place :: BV.Vector (MV.MVector s PositionAndMass)
+          -> MV.MVector s Int
+          -> PositionAndMass
+          -> Int
+          -> ST s ()
     place bins idxs p index = do
       let bin = bins BV.! index
       -- Get the index into the corresponding bin
@@ -141,13 +152,6 @@ partitionParticles ps mid = runST $ do
       -- Increment the index into that bin
       MV.unsafeWrite idxs index (i + 1)
 {-# INLINE partitionParticles #-}
-
--- It would be nice if this could be done in a single pass, but this is simple.
--- partitionParticles :: Vector PositionAndMass -> Vector Int -> BV.Vector (Vector PositionAndMass)
--- partitionParticles ps idx = BV.map f $ BV.enumFromStepN 0 1 8
---   where
---     ps' = V.zip ps idx
---     f i = projL $ V.filter ((== i) . snd) ps'
 
 splitPoints :: BoundingBox -> Vector PositionAndMass -> BV.Vector (BoundingBox, Vector PositionAndMass)
 splitPoints box points

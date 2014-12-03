@@ -41,15 +41,13 @@ runWithRecord baseName k f sys0 = do
   let -- Worker loop
       go :: Int -> System -> IO System
       go n !sys
-        | n >= k    = return sys
+        | n >= k    = awaitWriters queue >> return sys
         | otherwise = do
           let !sys' = f sys
               fname = printf "%s%0.6d.dat" baseName n
           writeSystem queue fname sys'
           go (n + 1) sys'
-  res <- go 0 sys0
-  awaitWriters queue
-  return res
+  go 0 sys0
 
 main :: IO ()
 main = do
