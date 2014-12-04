@@ -13,13 +13,16 @@ import           Control.Parallel.Strategies
 import           Data.Vector.Strategies
 #endif
 
+#if defined (MUTATING_PARTITION)
 import           Control.Monad.ST
+import qualified Data.Vector.Unboxed.Mutable as MV
+#endif
+
 import           Control.Applicative
 import           Control.DeepSeq
 import qualified Data.Vector                 as BV
 import           Data.Vector.Unboxed         (Unbox, Vector)
 import qualified Data.Vector.Unboxed         as V
-import qualified Data.Vector.Unboxed.Mutable as MV
 import           MolecularDynamics.Vec3
 
 -- Is this a good cutoff?
@@ -103,6 +106,7 @@ subBoxes (BoundingBox (Vec3 minx miny minz) (Vec3 maxx maxy maxz)) (Vec3 cx cy c
     , (xl, xr) <- [(minx, cx), (cx, maxx)] ]
 {-# INLINE subBoxes #-}
 
+#if defined (MUTATING_PARTITION)
 -- Partition a set of particles into the octants specified by `mid`.
 -- `mid` defines the center of the system, and each particle is placed into an
 -- array with all other particles in that octant.
@@ -128,7 +132,7 @@ partitionParticles ps mid = runST $ do
     indicesAndCounts = do
       counts  <- MV.replicate 8 0
       indices <- V.forM (projL ps) $ \p -> do
-        let index = cellIndex mid p
+        let !index = cellIndex mid p
         v <- MV.unsafeRead counts index
         MV.unsafeWrite counts index (v + 1)
         return index
@@ -143,7 +147,7 @@ partitionParticles ps mid = runST $ do
           -> Int
           -> ST s ()
     place bins idxs p index = do
-      let bin = bins BV.! index
+      let !bin = bins `BV.unsafeIndex` index
       -- Get the index into the corresponding bin
       i <- MV.unsafeRead idxs index
       -- Write the particle to the appropriate bin location
@@ -151,6 +155,16 @@ partitionParticles ps mid = runST $ do
       -- Increment the index into that bin
       MV.unsafeWrite idxs index (i + 1)
 {-# INLINE partitionParticles #-}
+#else
+-- It would be nice if this could be done in a single pass, but this is simple.
+partitionParticles :: Vector PositionAndMass -> Vec3 -> BV.Vector (Vector PositionAndMass)
+partitionParticles ps mid = BV.map f $ BV.enumFromStepN 0 1 8
+  where
+    idx = V.map (cellIndex mid . fst) ps
+    ps' = V.zip ps idx
+    f i = projL $ V.filter ((== i) . snd) ps'
+{-# INLINE partitionParticles #-}
+#endif
 
 splitPoints :: BoundingBox -> Vector PositionAndMass -> BV.Vector (BoundingBox, Vector PositionAndMass)
 splitPoints box points

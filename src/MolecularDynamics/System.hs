@@ -188,9 +188,9 @@ integrateSystem ts sys@System{..}
       let (vvec, avec) = V.unzip $ R.toUnboxed va
       return (pvec, vvec, avec)
 #else
-    pos'         = V.zipWith3 (updatePos ts) positions velocities accelerations
-    tree         = createBHTree $ V.zip pos' masses
+    pos' = V.zipWith3 (updatePos ts) positions velocities accelerations
+    tr   = createBHTree $ V.zip pos' masses
     (vel', acc') = V.unzip
-                 $ V.zipWith3 (updateVelAcc tree) pos' velocities accelerations
+                 $ V.zipWith3 (updateVelAcc tr) pos' velocities accelerations
 #endif
 

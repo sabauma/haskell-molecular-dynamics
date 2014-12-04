@@ -24,6 +24,10 @@ Flag ParIntegrator
     description: Enable parallel Repa based intregrator
     default:     True
 
+Flag MutatingPartition
+    description: BH algorithm will make use of a mutating partition
+    default:     True
+
 executable haskell-molecular-dynamics
   main-is:             MolecularDynamics/Main.hs
   -- other-modules:
@@ -42,13 +46,11 @@ executable haskell-molecular-dynamics
                        -fllvm -optlo-O3
 
   if flag(partree)
-      if flag(parintegrator)
-          cpp-options: -DPAR_TREE -DREPA_INTEGRATOR
-      else
-          cpp-options: -DPAR_TREE
-  else
-      if flag(parintegrator)
-          cpp-options: -DREPA_INTEGRATOR
+      cpp-options: -DPAR_TREE
+  if flag(parintegrator)
+      cpp-options: -DREPA_INTEGRATOR
+  if flag(mutatingpartition)
+      cpp-options: -DMUTATING_PARTITION
 
 benchmark benchmark-all
   type:                exitcode-stdio-1.0
@@ -66,10 +68,8 @@ benchmark benchmark-all
                        -fllvm -optlo-O3
 
   if flag(partree)
-      if flag(parintegrator)
-          cpp-options: -DPAR_TREE -DREPA_INTEGRATOR
-      else
-          cpp-options: -DPAR_TREE
-  else
-      if flag(parintegrator)
-          cpp-options: -DREPA_INTEGRATOR
+      cpp-options: -DPAR_TREE
+  if flag(parintegrator)
+      cpp-options: -DREPA_INTEGRATOR
+  if flag(mutatingpartition)
+      cpp-options: -DMUTATING_PARTITION
