@@ -44,9 +44,9 @@ main = do
       ],
       -- Weak head normal for is normal form for systems
       bgroup "cube-simulations" [
-        bench "cube-25"  $ whnf stepSystem $! makeCube 25,
         bench "cube-30"  $ whnf stepSystem $! makeCube 30,
-        bench "cube-40"  $ whnf stepSystem $! makeCube 40
+        bench "cube-40"  $ whnf stepSystem $! makeCube 40,
+        bench "cube-50"  $ whnf stepSystem $! makeCube 50
       ],
       env readDubinski $ bench "dubinski" . whnf stepSystem
     ]

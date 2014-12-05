@@ -62,7 +62,7 @@ benchmark benchmark-all
                        RecordWildCards
   build-depends:       base, stm, bytestring, vector, cassava, cereal, repa,
                        vector-th-unbox, vector-space, parallel, deepseq,
-                       vector-strategies, mtl, cereal-vector, criterion, monad-par
+                       vector-strategies, mtl, cereal-vector, criterion
   ghc-options:         -Wall -Odph -rtsopts -threaded -fno-liberate-case
                        -funfolding-use-threshold1000 -funfolding-keeness-factor1000
                        -fllvm -optlo-O3
