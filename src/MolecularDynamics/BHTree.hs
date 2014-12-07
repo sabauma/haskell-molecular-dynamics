@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns    #-}
 {-# LANGUAGE CPP             #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeFamilies    #-}
 module MolecularDynamics.BHTree
   ( BHNode
   , createBHTree
@@ -86,6 +87,11 @@ computeCenter particles = Centroid (mid ^/ mass) mass
 
 -- A function taking a bounding box and a position vector and producing an index
 -- which should be from 0 to 7.
+{-cellIndex center v = foldr (\a acc -> a + 2 * acc) 0-}
+                   {-$ zipWith (\l r -> fromEnum (l < r)) cs vs-}
+  {-where-}
+    {-cs = decompose center-}
+    {-vs = decompose v-}
 cellIndex :: Vec3 -> Vec3 -> Int
 cellIndex (Vec3 cx cy cz) (Vec3 x y z) = ix + 2 * iy + 4 * iz
   where
@@ -93,6 +99,14 @@ cellIndex (Vec3 cx cy cz) (Vec3 x y z) = ix + 2 * iy + 4 * iz
     iy = fromEnum $ y > cy
     iz = fromEnum $ z > cz
 {-# INLINE cellIndex #-}
+
+{-subBoxes' :: BoundingBox -> Vec3 -> [(Vec3, Vec3)]-}
+{-subBoxes' min max mid = map (recompose *** recompose) $ foldr f [([], [])] all-}
+  {-where dmin    = decompose min-}
+        {-dmax    = decompose max-}
+        {-dmid    = decompose mid-}
+        {-all     = zip3 dmin dmax dmid-}
+        {-f (l, r, c) = concatMap (\ ~(low, high) -> [(l : low, c : high), (c : low, r : high)])-}
 
 -- Not that the values found here must be in step with those given by `cellIndex`.
 -- In this case, that means that the x-dimension is treated as the least
@@ -157,7 +171,9 @@ partitionParticles ps mid = runST $ do
 {-# INLINE partitionParticles #-}
 #else
 -- It would be nice if this could be done in a single pass, but this is simple.
-partitionParticles :: Vector PositionAndMass -> Vec3 -> BV.Vector (Vector PositionAndMass)
+partitionParticles :: Vector PositionAndMass
+                   -> Vec3
+                   -> BV.Vector (Vector PositionAndMass)
 partitionParticles ps mid = BV.map f $ BV.enumFromStepN 0 1 8
   where
     idx = V.map (cellIndex mid . fst) ps

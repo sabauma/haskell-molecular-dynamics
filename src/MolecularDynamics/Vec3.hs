@@ -15,6 +15,7 @@ import           Data.Array.Repa.Eval
 import           Data.Vector.Unboxed.Deriving
 
 import           Data.AdditiveGroup           as M
+import           Data.Basis                   as M
 import           Data.VectorSpace             as M
 
 data Vec3 = Vec3 {-# UNPACK #-} !Double
@@ -71,6 +72,35 @@ instance VectorSpace Vec3 where
 instance InnerSpace Vec3 where
   (Vec3 x1 y1 z1) <.> (Vec3 x2 y2 z2) = x1 * x2 + y1 * y2 + z1 * z2
   {-# INLINE (<.>) #-}
+
+data Vec3Basis = X | Y | Z deriving (Bounded, Enum, Eq, Ord, Show)
+
+basisToVec3 :: Vec3Basis -> Vec3
+basisToVec3 X = Vec3 1 0 0
+basisToVec3 Y = Vec3 0 1 0
+basisToVec3 Z = Vec3 0 0 1
+{-# INLINE basisToVec3 #-}
+
+decomposeVec3 :: Vec3 -> [(Vec3Basis, Double)]
+decomposeVec3 (Vec3 x y z) = [(X, x), (Y, y), (Z, z)]
+{-# INLINE decomposeVec3 #-}
+
+extractComponent :: Vec3 -> Vec3Basis -> Double
+extractComponent (Vec3 x _ _) X = x
+extractComponent (Vec3 _ y _) Y = y
+extractComponent (Vec3 _ _ z) Z = z
+{-# INLINE extractComponent #-}
+
+-- TODO: Look into making use of this for arbitrary dimension BHTrees.
+-- Perhaps need to restrict to finite dimensional VS.
+instance HasBasis Vec3 where
+  type Basis Vec3 = Vec3Basis
+  basisValue      = basisToVec3
+  {-# INLINE basisValue #-}
+  decompose       = decomposeVec3
+  {-# INLINE decompose  #-}
+  decompose'      = extractComponent
+  {-# INLINE decompose' #-}
 
 vectorMax :: Vec3 -> Vec3 -> Vec3
 vectorMax (Vec3 a b c) (Vec3 x y z) = Vec3 (max a x) (max b y) (max c z)

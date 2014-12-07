@@ -55,7 +55,7 @@ main = do
   sys <- readPVMSystem n
   -- let !sys = makeCube n
   print $ V.length $ positions sys
-  void $ runWithRecord "test" 5 (integrateSystem 0.0050) sys
+  void $ runWithRecord "test" 25 (integrateSystem 0.0050) sys
   putStrLn "Awaiting writers"
 
 {-main :: IO ()-}

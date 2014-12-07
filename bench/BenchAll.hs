@@ -9,9 +9,6 @@ import           MolecularDynamics.BHTree
 import           MolecularDynamics.System
 import           Text.Printf
 
-{-bhTreeCreation :: System -> BHTree-}
-{-bhTreeCreation = createBHTree-}
-
 bigCube :: System
 bigCube = makeCube 100
 
@@ -44,9 +41,9 @@ main = do
       ],
       -- Weak head normal for is normal form for systems
       bgroup "cube-simulations" [
-        bench "cube-30"  $ whnf stepSystem $! makeCube 30,
-        bench "cube-40"  $ whnf stepSystem $! makeCube 40,
-        bench "cube-50"  $ whnf stepSystem $! makeCube 50
+        bench "cube-30"   $ whnf stepSystem $! makeCube 30,
+        bench "cube-40"   $ whnf stepSystem $! makeCube 40,
+        bench "cube-50"   $ whnf stepSystem $! makeCube 50
       ],
       env readDubinski $ bench "dubinski" . whnf stepSystem
     ]
