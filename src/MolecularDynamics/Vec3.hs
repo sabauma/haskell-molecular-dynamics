@@ -2,26 +2,31 @@
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE ViewPatterns               #-}
 module MolecularDynamics.Vec3
   ( Vec3 (..)
+  , boundingBoxes
+  , boxIndex
   , vectorMin
   , vectorMax
   , module M
   ) where
 
-import           Data.Csv
-import           Data.Serialize
+import           Control.Arrow                ((***))
 import           Data.Array.Repa.Eval
+import           Data.Csv                     hiding (index)
+import           Data.Serialize
 import           Data.Vector.Unboxed.Deriving
 
 import           Data.AdditiveGroup           as M
 import           Data.Basis                   as M
 import           Data.VectorSpace             as M
 
-data Vec3 = Vec3 {-# UNPACK #-} !Double
-                 {-# UNPACK #-} !Double
-                 {-# UNPACK #-} !Double
-  deriving (Show)
+data Vec3 = Vec3
+  { _x :: {-# UNPACK #-} !Double
+  , _y :: {-# UNPACK #-} !Double
+  , _z :: {-# UNPACK #-} !Double
+  } deriving (Show)
 
 toTriple :: Vec3 -> (Double, Double, Double)
 toTriple (Vec3 x y z) = (x, y, z)
@@ -101,6 +106,25 @@ instance HasBasis Vec3 where
   {-# INLINE decompose  #-}
   decompose'      = extractComponent
   {-# INLINE decompose' #-}
+
+-- Compute the list of sub boxes that can be formed from three vectors.
+boundingBoxes :: (HasBasis v) => v -> v -> v -> [(v, v)]
+boundingBoxes (decompose -> low) (decompose -> mid) (decompose -> high) =
+  map (recompose *** recompose) $ foldr f [([], [])] triples
+  where
+    triples     = zip3 low mid high
+    f (l, m, h) = concatMap (\(x, y) -> [(l : x, m : y), (m : x, h : y)])
+{-# INLINE boundingBoxes #-}
+
+-- Compute which box we would end up in.
+boxIndex :: (HasBasis v, s ~ Scalar v, Ord s) => v -> v -> Int
+boxIndex center v = foldr addDim 0 $ zipWith side cs vs
+  where
+    addDim a acc = a + 2 * acc
+    side l r     = fromEnum (l < r)
+    cs = map snd $ decompose center
+    vs = map snd $ decompose v
+{-# INLINE boxIndex #-}
 
 vectorMax :: Vec3 -> Vec3 -> Vec3
 vectorMax (Vec3 a b c) (Vec3 x y z) = Vec3 (max a x) (max b y) (max c z)

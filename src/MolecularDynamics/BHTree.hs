@@ -11,7 +11,6 @@ module MolecularDynamics.BHTree
 
 #if defined (PAR_TREE)
 import           Control.Parallel.Strategies
-import           Data.Vector.Strategies
 #endif
 
 #if defined (MUTATING_PARTITION)
@@ -45,6 +44,13 @@ data BHNode = BHNode
   , subtrees :: {-# UNPACK #-} !(BV.Vector BHNode)
   } deriving (Show)
 
+parTree :: Int -> Strategy BHNode
+parTree n _ | n < 0 = error "parTree: negative depth"
+parTree 0 t         = rdeepseq t
+parTree n t         = do
+  subs <- parTraversable (parTree $ pred n) $ subtrees t
+  return $ t { subtrees = subs }
+
 instance NFData BHNode where
   rnf BHNode{..} = rnf subtrees
 
@@ -57,7 +63,7 @@ data BoundingBox = BoundingBox {-# UNPACK #-} !Vec3 {-# UNPACK #-} !Vec3
 type PositionAndMass = (Vec3, Double)
 
 projL :: (Unbox a, Unbox b) => Vector (a, b) -> Vector a
-projL = V.map fst
+projL = fst . V.unzip
 {-# INLINE projL #-}
 
 boxCenter, boxSpan :: BoundingBox -> Vec3
@@ -87,11 +93,6 @@ computeCenter particles = Centroid (mid ^/ mass) mass
 
 -- A function taking a bounding box and a position vector and producing an index
 -- which should be from 0 to 7.
-{-cellIndex center v = foldr (\a acc -> a + 2 * acc) 0-}
-                   {-$ zipWith (\l r -> fromEnum (l < r)) cs vs-}
-  {-where-}
-    {-cs = decompose center-}
-    {-vs = decompose v-}
 cellIndex :: Vec3 -> Vec3 -> Int
 cellIndex (Vec3 cx cy cz) (Vec3 x y z) = ix + 2 * iy + 4 * iz
   where
@@ -99,14 +100,6 @@ cellIndex (Vec3 cx cy cz) (Vec3 x y z) = ix + 2 * iy + 4 * iz
     iy = fromEnum $ y > cy
     iz = fromEnum $ z > cz
 {-# INLINE cellIndex #-}
-
-{-subBoxes' :: BoundingBox -> Vec3 -> [(Vec3, Vec3)]-}
-{-subBoxes' min max mid = map (recompose *** recompose) $ foldr f [([], [])] all-}
-  {-where dmin    = decompose min-}
-        {-dmax    = decompose max-}
-        {-dmid    = decompose mid-}
-        {-all     = zip3 dmin dmax dmid-}
-        {-f (l, r, c) = concatMap (\ ~(low, high) -> [(l : low, c : high), (c : low, r : high)])-}
 
 -- Not that the values found here must be in step with those given by `cellIndex`.
 -- In this case, that means that the x-dimension is treated as the least
@@ -193,26 +186,28 @@ splitPoints box points
 {-# INLINE splitPoints #-}
 
 -- Compute a Barnes-Hut tree using a vector of positions and masses.
-createBHTreeWithBox :: Int -> BoundingBox -> Vector PositionAndMass -> BHNode
-createBHTreeWithBox !n !box !ps
+createBHTreeWithBox :: BoundingBox -> Vector PositionAndMass -> BHNode
+createBHTreeWithBox !box !ps
   | V.length ps <= 1 = BHNode { com = com, mass = mass, extent = extent, subtrees = BV.empty }
   | otherwise        = BHNode { com = com, mass = mass, extent = extent, subtrees = subtrees }
   where
+    -- XXX: We should compute this information using the sub trees rather than
+    -- doing a full of the data...
     Centroid com mass = computeCenter ps
     subspaces         = splitPoints box ps
     Vec3 dx dy dz     = boxSpan box
     extent            = dx `min` dy `min` dz
-#if defined (PAR_TREE)
-    subtrees
-      | n <= 0    = BV.map (uncurry $ createBHTreeWithBox (n - 1)) subspaces
-      | otherwise = BV.map (uncurry $ createBHTreeWithBox (n - 1)) subspaces `using` parVector 1
-#else
-    subtrees = BV.map (uncurry $ createBHTreeWithBox (n - 1)) subspaces
-#endif
+    subtrees          = BV.map (uncurry createBHTreeWithBox) subspaces
 
+#if defined (PAR_TREE)
 createBHTree :: Vector PositionAndMass -> BHNode
-createBHTree = createBHTreeWithBox 4 <$> computeBounds . projL <*> id
+createBHTree vs = createBHTreeWithBox (computeBounds $ projL vs) vs `using` parTree 3
 {-# INLINE createBHTree #-}
+#else
+createBHTree :: Vector PositionAndMass -> BHNode
+createBHTree vs = createBHTreeWithBox (computeBounds $ projL vs) vs
+{-# INLINE createBHTree #-}
+#endif
 
 -- Are we far enough away from the center of mass of the node to treat this tree
 -- as an aggregate of its subcomponents?
