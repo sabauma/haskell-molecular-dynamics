@@ -1,7 +1,8 @@
-{-# LANGUAGE BangPatterns    #-}
-{-# LANGUAGE CPP             #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TypeFamilies    #-}
+{-# LANGUAGE BangPatterns     #-}
+{-# LANGUAGE CPP              #-}
+{-# LANGUAGE RecordWildCards  #-}
+{-# LANGUAGE TypeFamilies     #-}
+{-# LANGUAGE FlexibleContexts #-}
 module MolecularDynamics.BHTree
   ( BHNode
   , createBHTree
@@ -18,7 +19,6 @@ import           Control.Monad.ST
 import qualified Data.Vector.Unboxed.Mutable as MV
 #endif
 
-import           Control.Applicative
 import           Control.DeepSeq
 import qualified Data.Vector                 as BV
 import           Data.Vector.Unboxed         (Unbox, Vector)

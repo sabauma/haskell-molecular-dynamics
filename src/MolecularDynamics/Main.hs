@@ -5,13 +5,11 @@ import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Monad
 import qualified Data.ByteString          as BS
-import qualified Data.ByteString.Lazy     as B
 import qualified Data.Vector.Unboxed      as V
 import           System.Environment       (getArgs)
 import           Text.Printf              (printf)
 
 import           MolecularDynamics.System
-import           MolecularDynamics.Vec3
 
 -- Iteratively perform updates ensuring we are nice and strict.
 runSim :: Int -> (System -> System) -> System -> System
